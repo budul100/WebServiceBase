@@ -6,11 +6,15 @@ using System.ServiceModel.Channels;
 namespace CrewChecker.Client
 {
     public abstract class BaseChannel<TChannel>
+        : IDisposable
     {
         #region Private Fields
 
         private const string HttpAddress = "http";
         private const string HttpsAddress = "https";
+        private readonly ChannelFactory<TChannel> factory;
+
+        private bool disposed = false;
 
         #endregion Private Fields
 
@@ -25,11 +29,13 @@ namespace CrewChecker.Client
 
             var isHttps = url.StartsWith(HttpsAddress);
 
-            Channel = GetChannel(
+            factory = GetFactory(
                 url: url,
                 userName: userName,
                 password: password,
                 isHttps: isHttps);
+
+            Channel = factory.CreateChannel();
         }
 
         protected BaseChannel(string host, int port, string path, string userName, string password, bool isHttps = true,
@@ -46,25 +52,63 @@ namespace CrewChecker.Client
                 path: path,
                 ishttps: isHttps);
 
-            Channel = GetChannel(
+            factory = GetFactory(
                 url: url,
                 userName: userName,
                 password: password,
                 isHttps: isHttps);
+
+            Channel = factory.CreateChannel();
         }
 
         #endregion Protected Constructors
 
         #region Protected Properties
 
-        protected TChannel Channel { get; private set; }
+        protected TChannel Channel { get; }
 
         #endregion Protected Properties
 
+        #region Public Methods
+
+        public void Dispose()
+        {
+            Dispose(true);
+        }
+
+        #endregion Public Methods
+
+        #region Protected Methods
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!disposed)
+            {
+                if (disposing)
+                {
+                    factory.Close();
+                }
+
+                disposed = true;
+            }
+        }
+
+        #endregion Protected Methods
+
         #region Private Methods
 
-        private static ChannelFactory<TChannel> GetFactory(string url, string userName, string password, Binding binding)
+        private static void IgnoreCertificateErrors()
         {
+            ServicePointManager.ServerCertificateValidationCallback =
+                (sender, certificate, chain, sslPolicyErrors) => { return true; };
+        }
+
+        private ChannelFactory<TChannel> GetFactory(string url, string userName, string password, bool isHttps)
+        {
+            var binding = isHttps
+                ? GetHttpsBinding()
+                : GetHttpBinding();
+
             var address = new EndpointAddress(new Uri(url));
 
             var result = new ChannelFactory<TChannel>(
@@ -75,27 +119,6 @@ namespace CrewChecker.Client
             result.Credentials.UserName.Password = password;
 
             return result;
-        }
-
-        private static void IgnoreCertificateErrors()
-        {
-            ServicePointManager.ServerCertificateValidationCallback =
-                (sender, certificate, chain, sslPolicyErrors) => { return true; };
-        }
-
-        private TChannel GetChannel(string url, string userName, string password, bool isHttps)
-        {
-            var binding = isHttps
-                ? GetHttpsBinding()
-                : GetHttpBinding();
-
-            using var factory = GetFactory(
-                url: url,
-                userName: userName,
-                password: password,
-                binding: binding);
-
-            return factory.CreateChannel();
         }
 
         private Binding GetHttpBinding()
